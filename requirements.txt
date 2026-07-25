@@ -1,0 +1,10 @@
+streamlit
+pandas
+numpy
+plotly
+groq
+python-dotenv
+pypdf
+sentence-transformers
+faiss-cpu
+pytest
