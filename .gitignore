@@ -1,7 +1,29 @@
+# Virtual environment
 .venv/
+venv/
+
+# Python cache
 __pycache__/
 *.pyc
+*.pyo
+
+# Pytest cache
+.pytest_cache/
+
+# Secret files
 .env
 .streamlit/secrets.toml
-.pytest_cache/
+
+# Generated vector files
+vector_store/*.faiss
+vector_store/*.index
+vector_store/*.json
+
+# Editor and operating-system files
+.vscode/
 .DS_Store
+Thumbs.db
+
+# Temporary files
+*.log
+*.tmp
