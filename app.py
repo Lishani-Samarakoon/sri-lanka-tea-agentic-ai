@@ -11,6 +11,7 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
+from src.retriever import get_retriever
 
 from src.agents.orchestrator import TeaOrchestrator
 from src.config import (

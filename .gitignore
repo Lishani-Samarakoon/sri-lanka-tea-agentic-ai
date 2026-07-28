@@ -1,26 +1,58 @@
+# ==============================
 # API keys and secrets
+# ==============================
 .env
 .streamlit/secrets.toml
 
+# ==============================
 # Python virtual environments
+# ==============================
 .venv/
 venv/
 env/
 
-# Python temporary files
+# ==============================
+# Python cache & temp
+# ==============================
 __pycache__/
 *.py[cod]
 *.pyo
 .pytest_cache/
+*.egg-info/
+build/
+dist/
 
+# ==============================
+# Vector DB / FAISS (IMPORTANT for Streamlit Cloud)
+# ==============================
+vector_store/
+*.faiss
+*.pkl
+*.bin
+
+# ==============================
+# Large data files (if generated)
+# ==============================
+*.csv
+*.xlsx
+*.parquet
+
+# (Remove above line if you intentionally keep small CSVs in repo)
+
+# ==============================
 # IDE files
+# ==============================
 .vscode/
 .idea/
 
-# Windows and macOS files
+# ==============================
+# OS files
+# ==============================
 Thumbs.db
 .DS_Store
 
-# Temporary files
+# ==============================
+# Logs & temp
+# ==============================
 *.tmp
 *.log
