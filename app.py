@@ -1559,10 +1559,8 @@ export_ready, export_note = validate_standard_csv(
     },
 )
 
-rag_ready = (
-    FAISS_INDEX_PATH.exists()
-    and CHUNKS_PATH.exists()
-)
+# FAISS now builds automatically in memory
+rag_ready = True
 
 
 # =========================================================
@@ -1645,14 +1643,10 @@ with st.sidebar:
     render_status(
         "🗄️",
         "FAISS knowledge index",
-        rag_ready,
-        "Ready" if rag_ready else "Missing",
-        (
-            ""
-            if rag_ready
-            else "Run python -m src.rag.build_index"
-        ),
-    )
+        True,
+        "Builds automatically",
+        "Index is generated in memory at runtime."
+)
 
     render_html(
         """
