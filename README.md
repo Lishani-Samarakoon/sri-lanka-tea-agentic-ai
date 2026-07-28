@@ -160,17 +160,12 @@ The two language models were deliberately selected for different sub-tasks.
 
 ## RAG Pipeline
 
-1. Search official PDF files.
-2. Extract text page by page using `pypdf`.
-3. Clean unnecessary spaces.
-4. Split text into 800-character chunks.
-5. Use a 120-character overlap.
-6. Store document name, page, year, category, and path as metadata.
-7. Generate normalised embeddings using `all-MiniLM-L6-v2`.
-8. Store embeddings using FAISS `IndexFlatIP`.
-9. Retrieve the top five chunks for each question.
-10. Generate an answer using only retrieved evidence.
-11. Review the answer before displaying it.
+1. Load official tea reports (PDF)
+2. Split documents into chunks
+3. Generate embeddings using sentence-transformers
+4. Store embeddings in FAISS (in memory)
+5. Retrieve relevant chunks during user query
+6. Generate grounded answer using LLM
 
 ## Dataset Files
 
@@ -322,6 +317,15 @@ The evaluation records:
 - The numerical tools only analyse years and months included in the CSV files.
 - Similarity scores show semantic relevance, not factual correctness.
 - The application does not produce forecasts.
+
+## Architecture Overview
+
+The system uses a multi-agent architecture:
+
+- Router Agent: Classifies user questions
+- Data Agent: Handles structured CSV analysis
+- Document Agent: Performs RAG-based retrieval
+- Review Agent: Validates answers before returning to user
 
 ## Git Workflow
 
