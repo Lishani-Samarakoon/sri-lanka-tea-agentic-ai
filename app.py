@@ -8,6 +8,7 @@ import textwrap
 from pathlib import Path
 from typing import Any
 
+from openai import api_key
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
@@ -1448,6 +1449,15 @@ if "messages" not in st.session_state:
 
 
 def process_question(question: str) -> None:
+    
+    api_key = get_groq_api_key()
+
+    if not api_key:
+        st.warning(
+            "⚠ LLM service is not configured. "
+            "The app is running in limited mode."
+    )
+        return
     """Process one question through all agents."""
     cleaned = question.strip()
 
