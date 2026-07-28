@@ -216,6 +216,9 @@ def scroll_to_top_once() -> None:
 # =========================================================
 
 def inject_custom_css() -> None:
+    if "startup_notice" not in st.session_state:
+        st.toast("🍃 Tea Intelligence Agent is ready.", icon="✅")
+        st.session_state.startup_notice = True
     """Apply the complete professional dashboard style."""
     if BANNER_IMAGE.exists():
         banner_uri = image_to_data_uri(BANNER_IMAGE)
