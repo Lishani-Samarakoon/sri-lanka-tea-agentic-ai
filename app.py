@@ -1459,10 +1459,14 @@ def process_question(question: str) -> None:
         }
     )
 
-    try:
-        orchestrator = get_orchestrator(
-            get_groq_api_key()
-        )
+    try: 
+        api_key = get_groq_api_key()
+
+        if not api_key:
+            st.error("❌ GROQ API key is not configured.")
+            return
+
+        orchestrator = get_orchestrator(api_key)
 
         with st.spinner(
             "The agents are analysing data, "
@@ -1482,7 +1486,6 @@ def process_question(question: str) -> None:
             "The agent system encountered "
             f"an error: {error}"
         )
-
     st.session_state.messages.append(
         {
             "role": "assistant",
