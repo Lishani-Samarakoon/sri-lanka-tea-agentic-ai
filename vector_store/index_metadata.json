@@ -1,0 +1,12 @@
+{
+  "built_at_utc": "2026-07-27T21:45:48.191307+00:00",
+  "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+  "document_count": 20,
+  "chunk_count": 3095,
+  "vector_dimension": 384,
+  "index_type": "FAISS IndexFlatIP with normalised embeddings",
+  "searched_folders": [
+    "annual_reports",
+    "documents"
+  ]
+}

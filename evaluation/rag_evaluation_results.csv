@@ -1,0 +1,6 @@
+query_id,query,expected_document,top_1_document,top_1_match,top_3_match,matched_keywords,keyword_coverage,manual_answer_supported,notes
+RAG01,What total tea production was reported for 2024?,annual_report_2024,annual_report_2021.pdf,no,no,"tea, production",0.67,REVIEW_REQUIRED,
+RAG02,What tea export volume and export earnings were reported for 2024?,annual_report_2024,annual_report_2015.pdf,no,no,"export, earnings",0.67,REVIEW_REQUIRED,
+RAG03,Which elevation category contributed the most tea production in 2025?,revised_tea_production_2025,tea_production_2024.pdf,no,yes,"high, medium, low",1.0,REVIEW_REQUIRED,
+RAG04,What reasons did the official report give for the change in tea production in 2024?,annual_report_2024,annual_report_2022.pdf,no,no,production,0.5,REVIEW_REQUIRED,
+RAG05,What official information is provided about Sri Lankan tea export performance?,annual_report,annual_report_2016.pdf,yes,yes,"export, Sri Lanka",1.0,REVIEW_REQUIRED,

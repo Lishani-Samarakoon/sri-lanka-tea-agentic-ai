@@ -1,0 +1,50 @@
+[
+  {
+    "id": "RAG01",
+    "query": "What total tea production was reported for 2024?",
+    "expected_document": "annual_report_2024",
+    "expected_keywords": [
+      "tea",
+      "production",
+      "2024"
+    ]
+  },
+  {
+    "id": "RAG02",
+    "query": "What tea export volume and export earnings were reported for 2024?",
+    "expected_document": "annual_report_2024",
+    "expected_keywords": [
+      "export",
+      "earnings",
+      "2024"
+    ]
+  },
+  {
+    "id": "RAG03",
+    "query": "Which elevation category contributed the most tea production in 2025?",
+    "expected_document": "revised_tea_production_2025",
+    "expected_keywords": [
+      "high",
+      "medium",
+      "low"
+    ]
+  },
+  {
+    "id": "RAG04",
+    "query": "What reasons did the official report give for the change in tea production in 2024?",
+    "expected_document": "annual_report_2024",
+    "expected_keywords": [
+      "production",
+      "2024"
+    ]
+  },
+  {
+    "id": "RAG05",
+    "query": "What official information is provided about Sri Lankan tea export performance?",
+    "expected_document": "annual_report",
+    "expected_keywords": [
+      "export",
+      "Sri Lanka"
+    ]
+  }
+]

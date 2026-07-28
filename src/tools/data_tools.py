@@ -1,34 +1,21 @@
+"""Pandas tools for official tea production and export datasets."""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
-
-# ---------------------------------------------------------
-# FILE LOCATIONS
-# ---------------------------------------------------------
-
-# data_tools.py is inside:
-# project_folder/src/tools/data_tools.py
-#
-# parents[2] goes back to the main project folder.
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-
-ANNUAL_DATA_PATH = (
-    PROJECT_ROOT
-    / "data"
-    / "processed"
-    / "tea_annual_production.csv"
+from src.config import (
+    ANNUAL_EXPORTS_CSV,
+    ANNUAL_PRODUCTION_CSV,
+    MONTHLY_PRODUCTION_CSV,
 )
+from src.schemas import json_safe
 
-MONTHLY_DATA_PATH = (
-    PROJECT_ROOT
-    / "data"
-    / "processed"
-    / "tea_monthly_production_2025.csv"
-)
-
-ANNUAL_SOURCE = "tea_annual_production.csv"
-MONTHLY_SOURCE = "tea_monthly_production_2025.csv"
 
 MONTH_ORDER = [
     "January",
@@ -46,580 +33,1102 @@ MONTH_ORDER = [
 ]
 
 
-# ---------------------------------------------------------
-# SMALL VALIDATION FUNCTION
-# ---------------------------------------------------------
+class DataValidationError(ValueError):
+    """Raised when an official dataset cannot be used safely."""
 
-def validate_columns(
-    data: pd.DataFrame,
-    required_columns: set[str],
-    dataset_name: str,
-) -> None:
-    """
-    Check whether a dataset contains all required columns.
-    """
 
-    missing_columns = required_columns - set(data.columns)
+@dataclass
+class DataRepository:
+    """Loads datasets and performs deterministic calculations."""
 
-    if missing_columns:
-        raise ValueError(
-            f"{dataset_name} is missing these columns: "
-            f"{sorted(missing_columns)}"
+    annual_path: Path = ANNUAL_PRODUCTION_CSV
+    monthly_path: Path = MONTHLY_PRODUCTION_CSV
+    exports_path: Path = ANNUAL_EXPORTS_CSV
+
+    @staticmethod
+    def percentage_change(
+        old_value: float,
+        new_value: float,
+    ) -> float | None:
+        """Calculate percentage change."""
+        if old_value == 0:
+            return None
+
+        return (
+            (new_value - old_value)
+            / old_value
+        ) * 100
+
+    @staticmethod
+    def read_csv(
+        path: Path,
+        required_columns: set[str],
+    ) -> pd.DataFrame:
+        """Read and validate a CSV file."""
+        if not path.exists():
+            raise DataValidationError(
+                f"Dataset not found: {path}"
+            )
+
+        try:
+            dataframe = pd.read_csv(path)
+
+        except pd.errors.EmptyDataError as error:
+            raise DataValidationError(
+                f"Dataset is empty: {path}"
+            ) from error
+
+        missing_columns = (
+            required_columns
+            - set(dataframe.columns)
         )
 
+        if missing_columns:
+            missing_text = ", ".join(
+                sorted(missing_columns)
+            )
 
-# ---------------------------------------------------------
-# LOAD ANNUAL DATA
-# ---------------------------------------------------------
+            raise DataValidationError(
+                f"{path.name} is missing columns: "
+                f"{missing_text}"
+            )
 
-def load_annual_data() -> pd.DataFrame:
-    """
-    Read and validate the annual tea-production CSV file.
-    """
+        if dataframe.empty:
+            raise DataValidationError(
+                f"{path.name} contains only headings. "
+                "Add verified official data rows."
+            )
 
-    if not ANNUAL_DATA_PATH.exists():
-        raise FileNotFoundError(
-            f"Annual dataset was not found here: "
-            f"{ANNUAL_DATA_PATH}"
-        )
+        return dataframe
 
-    data = pd.read_csv(ANNUAL_DATA_PATH)
+    def load_annual(self) -> pd.DataFrame:
+        """Load annual production data."""
+        dataframe = self.read_csv(
+            self.annual_path,
+            {
+                "year",
+                "production_mn_kg",
+                "source",
+            },
+        ).copy()
 
-    required_columns = {
-        "Year",
-        "Production_mn_kg",
-    }
+        dataframe["year"] = pd.to_numeric(
+            dataframe["year"],
+            errors="raise",
+        ).astype(int)
 
-    validate_columns(
-        data,
-        required_columns,
-        "Annual dataset",
-    )
-
-    if data.empty:
-        raise ValueError("Annual dataset is empty.")
-
-    # Convert values into proper numerical types.
-    data["Year"] = pd.to_numeric(
-        data["Year"],
-        errors="raise",
-    ).astype(int)
-
-    data["Production_mn_kg"] = pd.to_numeric(
-        data["Production_mn_kg"],
-        errors="raise",
-    )
-
-    # Check for blank values.
-    if data[list(required_columns)].isnull().any().any():
-        raise ValueError(
-            "Annual dataset contains blank values."
-        )
-
-    # A year should appear only once.
-    if data["Year"].duplicated().any():
-        raise ValueError(
-            "Annual dataset contains duplicate years."
-        )
-
-    # Production should be greater than zero.
-    if (data["Production_mn_kg"] <= 0).any():
-        raise ValueError(
-            "Annual production values must be greater than zero."
-        )
-
-    # Sort the table from oldest year to newest year.
-    data = data.sort_values("Year").reset_index(drop=True)
-
-    return data
-
-
-# ---------------------------------------------------------
-# LOAD MONTHLY DATA
-# ---------------------------------------------------------
-
-def load_monthly_data() -> pd.DataFrame:
-    """
-    Read and validate the monthly tea-production CSV file.
-    """
-
-    if not MONTHLY_DATA_PATH.exists():
-        raise FileNotFoundError(
-            f"Monthly dataset was not found here: "
-            f"{MONTHLY_DATA_PATH}"
-        )
-
-    data = pd.read_csv(MONTHLY_DATA_PATH)
-
-    required_columns = {
-        "month",
-        "high_kg",
-        "medium_kg",
-        "low_kg",
-        "total_kg",
-    }
-
-    validate_columns(
-        data,
-        required_columns,
-        "Monthly dataset",
-    )
-
-    if data.empty:
-        raise ValueError("Monthly dataset is empty.")
-
-    # Remove accidental spaces and standardise month names.
-    data["month"] = (
-        data["month"]
-        .astype(str)
-        .str.strip()
-        .str.title()
-    )
-
-    numerical_columns = [
-        "high_kg",
-        "medium_kg",
-        "low_kg",
-        "total_kg",
-    ]
-
-    for column in numerical_columns:
-        data[column] = pd.to_numeric(
-            data[column],
+        dataframe["production_mn_kg"] = pd.to_numeric(
+            dataframe["production_mn_kg"],
             errors="raise",
         )
 
-    # Check for blank cells.
-    if data[list(required_columns)].isnull().any().any():
-        raise ValueError(
-            "Monthly dataset contains blank values."
-        )
+        return dataframe.sort_values(
+            "year"
+        ).reset_index(drop=True)
 
-    # Check duplicate months.
-    if data["month"].duplicated().any():
-        raise ValueError(
-            "Monthly dataset contains duplicate months."
-        )
+    def load_monthly(self) -> pd.DataFrame:
+        """Load monthly tea-production data."""
+        dataframe = self.read_csv(
+            self.monthly_path,
+            {
+                "month",
+                "high_kg",
+                "medium_kg",
+                "low_kg",
+                "total_kg",
+                "source",
+            },
+        ).copy()
 
-    months_in_file = set(data["month"])
-    expected_months = set(MONTH_ORDER)
+        # Your 2025 file may not have a year column.
+        if "year" not in dataframe.columns:
+            year_match = re.search(
+                r"(?:19|20)\d{2}",
+                self.monthly_path.name,
+            )
 
-    missing_months = expected_months - months_in_file
-    unexpected_months = months_in_file - expected_months
+            inferred_year = (
+                int(year_match.group())
+                if year_match
+                else 2025
+            )
 
-    if missing_months:
-        raise ValueError(
-            f"Monthly dataset is missing these months: "
-            f"{sorted(missing_months)}"
-        )
+            dataframe["year"] = inferred_year
 
-    if unexpected_months:
-        raise ValueError(
-            f"Monthly dataset contains invalid months: "
-            f"{sorted(unexpected_months)}"
-        )
+        dataframe["year"] = pd.to_numeric(
+            dataframe["year"],
+            errors="raise",
+        ).astype(int)
 
-    # All production values should be positive.
-    if (data[numerical_columns] <= 0).any().any():
-        raise ValueError(
-            "Monthly production values must be greater than zero."
-        )
-
-    # Check:
-    # high + medium + low should be close to the official total.
-    #
-    # The official PDF contains a one-kilogram difference
-    # in June and October, so a difference of 1 kg is allowed.
-    calculated_total = (
-        data["high_kg"]
-        + data["medium_kg"]
-        + data["low_kg"]
-    )
-
-    total_difference = (
-        data["total_kg"] - calculated_total
-    ).abs()
-
-    if (total_difference > 1).any():
-        incorrect_rows = data.loc[
-            total_difference > 1,
-            ["month", "high_kg", "medium_kg", "low_kg", "total_kg"],
+        number_columns = [
+            "high_kg",
+            "medium_kg",
+            "low_kg",
+            "total_kg",
         ]
 
-        raise ValueError(
-            "Monthly totals contain differences greater than "
-            f"1 kilogram:\n{incorrect_rows}"
+        for column in number_columns:
+            dataframe[column] = pd.to_numeric(
+                dataframe[column],
+                errors="raise",
+            )
+
+        dataframe["month"] = (
+            dataframe["month"]
+            .astype(str)
+            .str.strip()
+            .str.title()
         )
 
-    # Sort January to December.
-    month_positions = {
-        month: position
-        for position, month in enumerate(MONTH_ORDER)
-    }
-
-    data["_month_position"] = data["month"].map(
-        month_positions
-    )
-
-    data = (
-        data
-        .sort_values("_month_position")
-        .drop(columns="_month_position")
-        .reset_index(drop=True)
-    )
-
-    return data
-
-
-# ---------------------------------------------------------
-# HELPER: FIND ONE YEAR
-# ---------------------------------------------------------
-
-def get_annual_row(year: int) -> pd.Series:
-    """
-    Find one year inside the annual dataset.
-    """
-
-    data = load_annual_data()
-
-    try:
-        selected_year = int(year)
-    except (TypeError, ValueError) as error:
-        raise ValueError(
-            "Year must be a valid number."
-        ) from error
-
-    matching_rows = data[data["Year"] == selected_year]
-
-    if matching_rows.empty:
-        available_years = data["Year"].tolist()
-
-        raise ValueError(
-            f"Year {selected_year} is not available. "
-            f"Available years: {available_years}"
+        invalid_months = sorted(
+            set(dataframe["month"])
+            - set(MONTH_ORDER)
         )
 
-    return matching_rows.iloc[0]
+        if invalid_months:
+            raise DataValidationError(
+                "Invalid month names: "
+                + ", ".join(invalid_months)
+            )
 
-
-# ---------------------------------------------------------
-# HELPER: FIND ONE MONTH
-# ---------------------------------------------------------
-
-def get_monthly_row(month: str) -> pd.Series:
-    """
-    Find one month inside the monthly dataset.
-    """
-
-    if not isinstance(month, str) or not month.strip():
-        raise ValueError(
-            "Month must be entered as text."
+        calculated_total = (
+            dataframe["high_kg"]
+            + dataframe["medium_kg"]
+            + dataframe["low_kg"]
         )
 
-    data = load_monthly_data()
+        incorrect_total = (
+            calculated_total
+            - dataframe["total_kg"]
+        ).abs() > 1
 
-    selected_month = month.strip().title()
+        if incorrect_total.any():
+            csv_rows = (
+                dataframe.index[incorrect_total] + 2
+            ).tolist()
 
-    matching_rows = data[
-        data["month"] == selected_month
-    ]
+            raise DataValidationError(
+                "total_kg must equal high_kg + "
+                "medium_kg + low_kg. Check CSV rows: "
+                f"{csv_rows}"
+            )
 
-    if matching_rows.empty:
-        raise ValueError(
-            f"Month '{month}' is not valid. "
-            "Enter a month from January to December."
+        month_numbers = {
+            month: position + 1
+            for position, month
+            in enumerate(MONTH_ORDER)
+        }
+
+        dataframe["month_number"] = (
+            dataframe["month"]
+            .map(month_numbers)
         )
 
-    return matching_rows.iloc[0]
+        return dataframe.sort_values(
+            ["year", "month_number"]
+        ).reset_index(drop=True)
 
+    def load_exports(self) -> pd.DataFrame:
+        """Load annual export data."""
+        dataframe = self.read_csv(
+            self.exports_path,
+            {
+                "year",
+                "export_volume_mn_kg",
+                "export_revenue_lkr_bn",
+                "source",
+            },
+        ).copy()
 
-# ---------------------------------------------------------
-# HIGHEST ANNUAL PRODUCTION
-# ---------------------------------------------------------
+        if (
+            "export_revenue_usd_mn"
+            not in dataframe.columns
+        ):
+            if (
+                "export_revenue_usd_bn"
+                in dataframe.columns
+            ):
+                dataframe[
+                    "export_revenue_usd_mn"
+                ] = (
+                    pd.to_numeric(
+                        dataframe[
+                            "export_revenue_usd_bn"
+                        ],
+                        errors="raise",
+                    )
+                    * 1000
+                )
 
-def get_highest_production_year() -> dict:
-    """
-    Return the year with the highest annual production.
-    """
+            else:
+                raise DataValidationError(
+                    f"{self.exports_path.name} must "
+                    "contain export_revenue_usd_mn "
+                    "or export_revenue_usd_bn."
+                )
 
-    data = load_annual_data()
+        dataframe["year"] = pd.to_numeric(
+            dataframe["year"],
+            errors="raise",
+        ).astype(int)
 
-    highest_index = data["Production_mn_kg"].idxmax()
-    highest_row = data.loc[highest_index]
+        number_columns = [
+            "export_volume_mn_kg",
+            "export_revenue_lkr_bn",
+            "export_revenue_usd_mn",
+        ]
 
-    return {
-        "year": int(highest_row["Year"]),
-        "production_mn_kg": float(
-            highest_row["Production_mn_kg"]
-        ),
-        "unit": "million kilograms",
-        "source": ANNUAL_SOURCE,
-    }
+        for column in number_columns:
+            dataframe[column] = pd.to_numeric(
+                dataframe[column],
+                errors="raise",
+            )
 
+        return dataframe.sort_values(
+            "year"
+        ).reset_index(drop=True)
 
-# ---------------------------------------------------------
-# LOWEST ANNUAL PRODUCTION
-# ---------------------------------------------------------
-
-def get_lowest_production_year() -> dict:
-    """
-    Return the year with the lowest annual production.
-    """
-
-    data = load_annual_data()
-
-    lowest_index = data["Production_mn_kg"].idxmin()
-    lowest_row = data.loc[lowest_index]
-
-    return {
-        "year": int(lowest_row["Year"]),
-        "production_mn_kg": float(
-            lowest_row["Production_mn_kg"]
-        ),
-        "unit": "million kilograms",
-        "source": ANNUAL_SOURCE,
-    }
-
-
-# ---------------------------------------------------------
-# COMPARE TWO YEARS
-# ---------------------------------------------------------
-
-def compare_two_years(
-    year1: int,
-    year2: int,
-) -> dict:
-    """
-    Compare tea production between two years.
-    """
-
-    first_row = get_annual_row(year1)
-    second_row = get_annual_row(year2)
-
-    value1 = float(first_row["Production_mn_kg"])
-    value2 = float(second_row["Production_mn_kg"])
-
-    difference = value2 - value1
-
-    if value1 == 0:
-        percentage_change = None
-    else:
-        percentage_change = (
-            difference / value1
-        ) * 100
-
-    return {
-        "year_1": int(first_row["Year"]),
-        "value_1": value1,
-        "year_2": int(second_row["Year"]),
-        "value_2": value2,
-        "difference": round(difference, 2),
-        "percentage_change": (
-            round(percentage_change, 2)
-            if percentage_change is not None
-            else None
-        ),
-        "unit": "million kilograms",
-        "source": ANNUAL_SOURCE,
-    }
-
-
-# ---------------------------------------------------------
-# YEARLY PERCENTAGE CHANGE
-# ---------------------------------------------------------
-
-def calculate_yearly_percentage_change(
-    year1: int,
-    year2: int,
-) -> dict:
-    """
-    Calculate the percentage change from year1 to year2.
-    """
-
-    comparison = compare_two_years(year1, year2)
-
-    return {
-        "from_year": comparison["year_1"],
-        "from_value": comparison["value_1"],
-        "to_year": comparison["year_2"],
-        "to_value": comparison["value_2"],
-        "percentage_change": comparison[
-            "percentage_change"
-        ],
-        "unit": comparison["unit"],
-        "source": comparison["source"],
-    }
-
-
-# ---------------------------------------------------------
-# HIGHEST MONTHLY PRODUCTION
-# ---------------------------------------------------------
-
-def get_highest_production_month() -> dict:
-    """
-    Return the month with the highest total production.
-    """
-
-    data = load_monthly_data()
-
-    highest_index = data["total_kg"].idxmax()
-    highest_row = data.loc[highest_index]
-
-    return {
-        "month": str(highest_row["month"]),
-        "total_kg": int(highest_row["total_kg"]),
-        "high_kg": int(highest_row["high_kg"]),
-        "medium_kg": int(highest_row["medium_kg"]),
-        "low_kg": int(highest_row["low_kg"]),
-        "unit": "kilograms",
-        "source": MONTHLY_SOURCE,
-    }
-
-
-# ---------------------------------------------------------
-# LOWEST MONTHLY PRODUCTION
-# ---------------------------------------------------------
-
-def get_lowest_production_month() -> dict:
-    """
-    Return the month with the lowest total production.
-    """
-
-    data = load_monthly_data()
-
-    lowest_index = data["total_kg"].idxmin()
-    lowest_row = data.loc[lowest_index]
-
-    return {
-        "month": str(lowest_row["month"]),
-        "total_kg": int(lowest_row["total_kg"]),
-        "high_kg": int(lowest_row["high_kg"]),
-        "medium_kg": int(lowest_row["medium_kg"]),
-        "low_kg": int(lowest_row["low_kg"]),
-        "unit": "kilograms",
-        "source": MONTHLY_SOURCE,
-    }
-
-
-# ---------------------------------------------------------
-# COMPARE TWO MONTHS
-# ---------------------------------------------------------
-
-def compare_two_months(
-    month1: str,
-    month2: str,
-) -> dict:
-    """
-    Compare total tea production between two months.
-    """
-
-    first_row = get_monthly_row(month1)
-    second_row = get_monthly_row(month2)
-
-    value1 = int(first_row["total_kg"])
-    value2 = int(second_row["total_kg"])
-
-    difference = value2 - value1
-
-    if value1 == 0:
-        percentage_change = None
-    else:
-        percentage_change = (
-            difference / value1
-        ) * 100
-
-    return {
-        "month_1": str(first_row["month"]),
-        "value_1": value1,
-        "month_2": str(second_row["month"]),
-        "value_2": value2,
-        "difference": difference,
-        "percentage_change": (
-            round(percentage_change, 2)
-            if percentage_change is not None
-            else None
-        ),
-        "unit": "kilograms",
-        "source": MONTHLY_SOURCE,
-    }
-
-
-# ---------------------------------------------------------
-# MONTHLY PERCENTAGE CHANGE
-# ---------------------------------------------------------
-
-def calculate_monthly_percentage_change(
-    month1: str,
-    month2: str,
-) -> dict:
-    """
-    Calculate percentage change from month1 to month2.
-    """
-
-    comparison = compare_two_months(
-        month1,
-        month2,
-    )
-
-    return {
-        "from_month": comparison["month_1"],
-        "from_value": comparison["value_1"],
-        "to_month": comparison["month_2"],
-        "to_value": comparison["value_2"],
-        "percentage_change": comparison[
-            "percentage_change"
-        ],
-        "unit": comparison["unit"],
-        "source": comparison["source"],
-    }
-
-
-# ---------------------------------------------------------
-# SIMPLE MANUAL TEST
-# ---------------------------------------------------------
-
-if __name__ == "__main__":
-    print("\nANNUAL DATA")
-    print(load_annual_data())
-
-    print("\nMONTHLY DATA")
-    print(load_monthly_data())
-
-    print("\nHIGHEST YEAR")
-    print(get_highest_production_year())
-
-    print("\nLOWEST YEAR")
-    print(get_lowest_production_year())
-
-    print("\nCOMPARE 2006 AND 2012")
-    print(compare_two_years(2006, 2012))
-
-    print("\nYEARLY PERCENTAGE CHANGE: 2009 TO 2010")
-    print(
-        calculate_yearly_percentage_change(
-            2009,
-            2010,
+    @staticmethod
+    def create_result(
+        *,
+        operation: str,
+        summary: str,
+        records: list[dict[str, Any]],
+        sources: list[str],
+        chart: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Create a standard result returned by every tool."""
+        return json_safe(
+            {
+                "status": "success",
+                "operation": operation,
+                "summary": summary,
+                "records": records,
+                "sources": sorted(
+                    set(sources)
+                ),
+                "chart": chart,
+            }
         )
-    )
 
-    print("\nHIGHEST MONTH")
-    print(get_highest_production_month())
+    def annual_extreme(
+        self,
+        direction: str,
+    ) -> dict[str, Any]:
+        """Find the highest or lowest annual production."""
+        dataframe = self.load_annual()
 
-    print("\nLOWEST MONTH")
-    print(get_lowest_production_month())
+        if direction == "highest":
+            row_index = dataframe[
+                "production_mn_kg"
+            ].idxmax()
 
-    print("\nCOMPARE JANUARY AND FEBRUARY")
-    print(
-        compare_two_months(
-            "January",
-            "February",
+        elif direction == "lowest":
+            row_index = dataframe[
+                "production_mn_kg"
+            ].idxmin()
+
+        else:
+            raise DataValidationError(
+                "Direction must be highest or lowest."
+            )
+
+        row = dataframe.loc[row_index]
+
+        summary = (
+            f"The {direction} annual tea production "
+            f"in the dataset was "
+            f"{row['production_mn_kg']:,.2f} million kg "
+            f"in {int(row['year'])}."
         )
-    )
 
-    print("\nMONTHLY PERCENTAGE CHANGE: MARCH TO APRIL")
-    print(
-        calculate_monthly_percentage_change(
-            "March",
-            "April",
+        record = row[
+            [
+                "year",
+                "production_mn_kg",
+                "source",
+            ]
+        ].to_dict()
+
+        return self.create_result(
+            operation=(
+                f"{direction}_annual_production"
+            ),
+            summary=summary,
+            records=[record],
+            sources=[str(row["source"])],
         )
-    )
+
+    def annual_value(
+        self,
+        year: int,
+    ) -> dict[str, Any]:
+        """Get annual production for one year."""
+        dataframe = self.load_annual()
+
+        result = dataframe[
+            dataframe["year"] == year
+        ]
+
+        if result.empty:
+            raise DataValidationError(
+                "Annual production data is not "
+                f"available for {year}."
+            )
+
+        row = result.iloc[0]
+
+        summary = (
+            f"Tea production in {year} was "
+            f"{row['production_mn_kg']:,.2f} "
+            "million kg."
+        )
+
+        record = row[
+            [
+                "year",
+                "production_mn_kg",
+                "source",
+            ]
+        ].to_dict()
+
+        return self.create_result(
+            operation="get_annual_production",
+            summary=summary,
+            records=[record],
+            sources=[str(row["source"])],
+        )
+
+    def compare_annual(
+        self,
+        year_1: int,
+        year_2: int,
+    ) -> dict[str, Any]:
+        """Compare annual tea production between two years."""
+        dataframe = self.load_annual()
+
+        result = dataframe[
+            dataframe["year"].isin(
+                [year_1, year_2]
+            )
+        ]
+
+        found_years = set(
+            result["year"].astype(int)
+        )
+
+        missing_years = [
+            year
+            for year in [year_1, year_2]
+            if year not in found_years
+        ]
+
+        if missing_years:
+            raise DataValidationError(
+                "Annual production data is not "
+                "available for: "
+                + ", ".join(
+                    map(str, missing_years)
+                )
+            )
+
+        first_row = result[
+            result["year"] == year_1
+        ].iloc[0]
+
+        second_row = result[
+            result["year"] == year_2
+        ].iloc[0]
+
+        old_value = float(
+            first_row["production_mn_kg"]
+        )
+
+        new_value = float(
+            second_row["production_mn_kg"]
+        )
+
+        difference = new_value - old_value
+
+        percentage = self.percentage_change(
+            old_value,
+            new_value,
+        )
+
+        if difference > 0:
+            direction = "increased"
+
+        elif difference < 0:
+            direction = "decreased"
+
+        else:
+            direction = "did not change"
+
+        percentage_text = (
+            "undefined"
+            if percentage is None
+            else f"{abs(percentage):.2f}%"
+        )
+
+        summary = (
+            f"Tea production {direction} from "
+            f"{old_value:,.2f} million kg in "
+            f"{year_1} to {new_value:,.2f} "
+            f"million kg in {year_2}. "
+            f"The absolute change was "
+            f"{difference:,.2f} million kg. "
+            f"The percentage change was "
+            f"{percentage_text}."
+        )
+
+        records = result[
+            [
+                "year",
+                "production_mn_kg",
+                "source",
+            ]
+        ].sort_values("year").to_dict(
+            "records"
+        )
+
+        return self.create_result(
+            operation="compare_annual_production",
+            summary=summary,
+            records=records,
+            sources=result[
+                "source"
+            ].astype(str).tolist(),
+            chart={
+                "type": "bar",
+                "x": "year",
+                "y": "production_mn_kg",
+                "data": records,
+                "y_label": (
+                    "Production (million kg)"
+                ),
+            },
+        )
+
+    def annual_trend(self) -> dict[str, Any]:
+        """Return all annual production values."""
+        dataframe = self.load_annual()
+
+        records = dataframe[
+            [
+                "year",
+                "production_mn_kg",
+                "source",
+            ]
+        ].to_dict("records")
+
+        summary = (
+            f"The annual dataset contains "
+            f"{len(dataframe)} records from "
+            f"{int(dataframe['year'].min())} to "
+            f"{int(dataframe['year'].max())}."
+        )
+
+        return self.create_result(
+            operation="annual_production_trend",
+            summary=summary,
+            records=records,
+            sources=dataframe[
+                "source"
+            ].astype(str).tolist(),
+            chart={
+                "type": "line",
+                "x": "year",
+                "y": "production_mn_kg",
+                "data": records,
+                "y_label": (
+                    "Production (million kg)"
+                ),
+            },
+        )
+
+    def monthly_extreme(
+        self,
+        direction: str,
+        year: int | None = None,
+        metric: str = "total_kg",
+    ) -> dict[str, Any]:
+        """Find the highest or lowest month."""
+        allowed_metrics = {
+            "high_kg",
+            "medium_kg",
+            "low_kg",
+            "total_kg",
+        }
+
+        if metric not in allowed_metrics:
+            raise DataValidationError(
+                f"Unsupported monthly metric: {metric}"
+            )
+
+        dataframe = self.load_monthly()
+
+        if year is not None:
+            dataframe = dataframe[
+                dataframe["year"] == year
+            ]
+
+            if dataframe.empty:
+                raise DataValidationError(
+                    "Monthly production data is "
+                    f"not available for {year}."
+                )
+
+        if direction == "highest":
+            row_index = dataframe[
+                metric
+            ].idxmax()
+
+        elif direction == "lowest":
+            row_index = dataframe[
+                metric
+            ].idxmin()
+
+        else:
+            raise DataValidationError(
+                "Direction must be highest or lowest."
+            )
+
+        row = dataframe.loc[row_index]
+
+        summary = (
+            f"The {direction} "
+            f"{metric.replace('_', ' ')} was "
+            f"{row[metric]:,.0f} kg in "
+            f"{row['month']} {int(row['year'])}."
+        )
+
+        columns = [
+            "year",
+            "month",
+            "high_kg",
+            "medium_kg",
+            "low_kg",
+            "total_kg",
+            "source",
+        ]
+
+        return self.create_result(
+            operation=(
+                f"{direction}_monthly_production"
+            ),
+            summary=summary,
+            records=[
+                row[columns].to_dict()
+            ],
+            sources=[str(row["source"])],
+        )
+
+    def monthly_value(
+        self,
+        year: int,
+        month: str,
+        metric: str = "total_kg",
+    ) -> dict[str, Any]:
+        """Return production for one month."""
+        allowed_metrics = {
+            "high_kg",
+            "medium_kg",
+            "low_kg",
+            "total_kg",
+        }
+
+        if metric not in allowed_metrics:
+            raise DataValidationError(
+                f"Unsupported monthly metric: {metric}"
+            )
+
+        month = month.strip().title()
+
+        dataframe = self.load_monthly()
+
+        result = dataframe[
+            (dataframe["year"] == year)
+            & (dataframe["month"] == month)
+        ]
+
+        if result.empty:
+            raise DataValidationError(
+                "Monthly production data is not "
+                f"available for {month} {year}."
+            )
+
+        row = result.iloc[0]
+
+        summary = (
+            f"{metric.replace('_', ' ').title()} "
+            f"in {month} {year} was "
+            f"{row[metric]:,.0f} kg."
+        )
+
+        columns = [
+            "year",
+            "month",
+            "high_kg",
+            "medium_kg",
+            "low_kg",
+            "total_kg",
+            "source",
+        ]
+
+        return self.create_result(
+            operation="get_monthly_production",
+            summary=summary,
+            records=[
+                row[columns].to_dict()
+            ],
+            sources=[str(row["source"])],
+        )
+
+    def compare_months(
+        self,
+        year: int,
+        month_1: str,
+        month_2: str,
+        metric: str = "total_kg",
+    ) -> dict[str, Any]:
+        """Compare production between two months."""
+        allowed_metrics = {
+            "high_kg",
+            "medium_kg",
+            "low_kg",
+            "total_kg",
+        }
+
+        if metric not in allowed_metrics:
+            raise DataValidationError(
+                f"Unsupported monthly metric: {metric}"
+            )
+
+        month_1 = month_1.strip().title()
+        month_2 = month_2.strip().title()
+
+        dataframe = self.load_monthly()
+
+        result = dataframe[
+            (dataframe["year"] == year)
+            & dataframe["month"].isin(
+                [month_1, month_2]
+            )
+        ]
+
+        found_months = set(
+            result["month"]
+        )
+
+        missing_months = [
+            month
+            for month in [month_1, month_2]
+            if month not in found_months
+        ]
+
+        if missing_months:
+            raise DataValidationError(
+                f"Monthly data for {year} is not "
+                "available for: "
+                + ", ".join(missing_months)
+            )
+
+        first_row = result[
+            result["month"] == month_1
+        ].iloc[0]
+
+        second_row = result[
+            result["month"] == month_2
+        ].iloc[0]
+
+        old_value = float(first_row[metric])
+        new_value = float(second_row[metric])
+
+        difference = new_value - old_value
+
+        percentage = self.percentage_change(
+            old_value,
+            new_value,
+        )
+
+        if difference > 0:
+            direction = "increased"
+
+        elif difference < 0:
+            direction = "decreased"
+
+        else:
+            direction = "did not change"
+
+        percentage_text = (
+            "undefined"
+            if percentage is None
+            else f"{abs(percentage):.2f}%"
+        )
+
+        summary = (
+            f"{metric.replace('_', ' ').title()} "
+            f"{direction} from {old_value:,.0f} kg "
+            f"in {month_1} {year} to "
+            f"{new_value:,.0f} kg in "
+            f"{month_2} {year}. "
+            f"The change was {difference:,.0f} kg "
+            f"({percentage_text})."
+        )
+
+        columns = [
+            "year",
+            "month",
+            "high_kg",
+            "medium_kg",
+            "low_kg",
+            "total_kg",
+            "source",
+        ]
+
+        records = result.sort_values(
+            "month_number"
+        )[columns].to_dict("records")
+
+        return self.create_result(
+            operation="compare_monthly_production",
+            summary=summary,
+            records=records,
+            sources=result[
+                "source"
+            ].astype(str).tolist(),
+            chart={
+                "type": "bar",
+                "x": "month",
+                "y": metric,
+                "data": records,
+                "y_label": (
+                    metric.replace("_", " ").title()
+                ),
+            },
+        )
+
+    def monthly_trend(
+        self,
+        year: int | None = None,
+    ) -> dict[str, Any]:
+        """Return monthly production records."""
+        dataframe = self.load_monthly()
+
+        if year is not None:
+            dataframe = dataframe[
+                dataframe["year"] == year
+            ]
+
+            if dataframe.empty:
+                raise DataValidationError(
+                    "Monthly data is not available "
+                    f"for {year}."
+                )
+
+        columns = [
+            "year",
+            "month",
+            "high_kg",
+            "medium_kg",
+            "low_kg",
+            "total_kg",
+            "source",
+        ]
+
+        records = dataframe[
+            columns
+        ].to_dict("records")
+
+        years = sorted(
+            dataframe["year"]
+            .unique()
+            .tolist()
+        )
+
+        summary = (
+            f"The dataset contains {len(dataframe)} "
+            f"monthly records for year(s): {years}."
+        )
+
+        return self.create_result(
+            operation="monthly_production_trend",
+            summary=summary,
+            records=records,
+            sources=dataframe[
+                "source"
+            ].astype(str).tolist(),
+            chart={
+                "type": "line",
+                "x": "month",
+                "y": "total_kg",
+                "data": records,
+                "y_label": (
+                    "Total production (kg)"
+                ),
+            },
+        )
+
+    @staticmethod
+    def export_unit(metric: str) -> str:
+        """Return the correct export unit."""
+        units = {
+            "export_volume_mn_kg": "million kg",
+            "export_revenue_lkr_bn": "LKR billion",
+            "export_revenue_usd_mn": "USD million",
+        }
+
+        if metric not in units:
+            raise DataValidationError(
+                f"Unsupported export metric: {metric}"
+            )
+
+        return units[metric]
+
+    def export_extreme(
+        self,
+        direction: str,
+        metric: str = "export_volume_mn_kg",
+    ) -> dict[str, Any]:
+        """Find the highest or lowest export value."""
+        unit = self.export_unit(metric)
+        dataframe = self.load_exports()
+
+        if direction == "highest":
+            row_index = dataframe[
+                metric
+            ].idxmax()
+
+        elif direction == "lowest":
+            row_index = dataframe[
+                metric
+            ].idxmin()
+
+        else:
+            raise DataValidationError(
+                "Direction must be highest or lowest."
+            )
+
+        row = dataframe.loc[row_index]
+
+        summary = (
+            f"The {direction} "
+            f"{metric.replace('_', ' ')} was "
+            f"{row[metric]:,.2f} {unit} in "
+            f"{int(row['year'])}."
+        )
+
+        columns = [
+            "year",
+            "export_volume_mn_kg",
+            "export_revenue_lkr_bn",
+            "export_revenue_usd_mn",
+            "source",
+        ]
+
+        return self.create_result(
+            operation=f"{direction}_export_metric",
+            summary=summary,
+            records=[
+                row[columns].to_dict()
+            ],
+            sources=[str(row["source"])],
+        )
+
+    def export_value(
+        self,
+        year: int,
+        metric: str = "export_volume_mn_kg",
+    ) -> dict[str, Any]:
+        """Get an export value for one year."""
+        unit = self.export_unit(metric)
+        dataframe = self.load_exports()
+
+        result = dataframe[
+            dataframe["year"] == year
+        ]
+
+        if result.empty:
+            raise DataValidationError(
+                f"Export data is not available for {year}."
+            )
+
+        row = result.iloc[0]
+
+        summary = (
+            f"{metric.replace('_', ' ').title()} "
+            f"in {year} was "
+            f"{row[metric]:,.2f} {unit}."
+        )
+
+        columns = [
+            "year",
+            "export_volume_mn_kg",
+            "export_revenue_lkr_bn",
+            "export_revenue_usd_mn",
+            "source",
+        ]
+
+        return self.create_result(
+            operation="get_export_metric",
+            summary=summary,
+            records=[
+                row[columns].to_dict()
+            ],
+            sources=[str(row["source"])],
+        )
+
+    def compare_exports(
+        self,
+        year_1: int,
+        year_2: int,
+        metric: str = "export_volume_mn_kg",
+    ) -> dict[str, Any]:
+        """Compare an export metric between two years."""
+        unit = self.export_unit(metric)
+        dataframe = self.load_exports()
+
+        result = dataframe[
+            dataframe["year"].isin(
+                [year_1, year_2]
+            )
+        ]
+
+        found_years = set(
+            result["year"].astype(int)
+        )
+
+        missing_years = [
+            year
+            for year in [year_1, year_2]
+            if year not in found_years
+        ]
+
+        if missing_years:
+            raise DataValidationError(
+                "Export data is not available for: "
+                + ", ".join(
+                    map(str, missing_years)
+                )
+            )
+
+        first_row = result[
+            result["year"] == year_1
+        ].iloc[0]
+
+        second_row = result[
+            result["year"] == year_2
+        ].iloc[0]
+
+        old_value = float(first_row[metric])
+        new_value = float(second_row[metric])
+
+        difference = new_value - old_value
+
+        percentage = self.percentage_change(
+            old_value,
+            new_value,
+        )
+
+        if difference > 0:
+            direction = "increased"
+
+        elif difference < 0:
+            direction = "decreased"
+
+        else:
+            direction = "did not change"
+
+        percentage_text = (
+            "undefined"
+            if percentage is None
+            else f"{abs(percentage):.2f}%"
+        )
+
+        summary = (
+            f"{metric.replace('_', ' ').title()} "
+            f"{direction} from "
+            f"{old_value:,.2f} {unit} in {year_1} "
+            f"to {new_value:,.2f} {unit} in "
+            f"{year_2}. The change was "
+            f"{difference:,.2f} {unit} "
+            f"({percentage_text})."
+        )
+
+        columns = [
+            "year",
+            "export_volume_mn_kg",
+            "export_revenue_lkr_bn",
+            "export_revenue_usd_mn",
+            "source",
+        ]
+
+        records = result[
+            columns
+        ].sort_values("year").to_dict(
+            "records"
+        )
+
+        return self.create_result(
+            operation="compare_export_metric",
+            summary=summary,
+            records=records,
+            sources=result[
+                "source"
+            ].astype(str).tolist(),
+            chart={
+                "type": "bar",
+                "x": "year",
+                "y": metric,
+                "data": records,
+                "y_label": (
+                    f"{metric.replace('_', ' ').title()} "
+                    f"({unit})"
+                ),
+            },
+        )
+
+    def export_trend(
+        self,
+        metric: str = "export_volume_mn_kg",
+    ) -> dict[str, Any]:
+        """Return all annual export data."""
+        self.export_unit(metric)
+        dataframe = self.load_exports()
+
+        columns = [
+            "year",
+            "export_volume_mn_kg",
+            "export_revenue_lkr_bn",
+            "export_revenue_usd_mn",
+            "source",
+        ]
+
+        records = dataframe[
+            columns
+        ].to_dict("records")
+
+        summary = (
+            f"The export dataset contains "
+            f"{len(dataframe)} records from "
+            f"{int(dataframe['year'].min())} to "
+            f"{int(dataframe['year'].max())}."
+        )
+
+        return self.create_result(
+            operation="export_trend",
+            summary=summary,
+            records=records,
+            sources=dataframe[
+                "source"
+            ].astype(str).tolist(),
+            chart={
+                "type": "line",
+                "x": "year",
+                "y": metric,
+                "data": records,
+                "y_label": (
+                    metric.replace("_", " ").title()
+                ),
+            },
+        )

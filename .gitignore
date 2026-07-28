@@ -1,29 +1,26 @@
-# Virtual environment
-.venv/
-venv/
-
-# Python cache
-__pycache__/
-*.pyc
-*.pyo
-
-# Pytest cache
-.pytest_cache/
-
-# Secret files
+# API keys and secrets
 .env
 .streamlit/secrets.toml
 
-# Generated vector files
-vector_store/*.faiss
-vector_store/*.index
-vector_store/*.json
+# Python virtual environments
+.venv/
+venv/
+env/
 
-# Editor and operating-system files
+# Python temporary files
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+
+# IDE files
 .vscode/
-.DS_Store
+.idea/
+
+# Windows and macOS files
 Thumbs.db
+.DS_Store
 
 # Temporary files
-*.log
 *.tmp
+*.log
