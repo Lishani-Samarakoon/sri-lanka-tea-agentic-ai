@@ -8,7 +8,6 @@ import textwrap
 from pathlib import Path
 from typing import Any
 
-from openai import api_key
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
