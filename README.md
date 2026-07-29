@@ -435,3 +435,16 @@ AI tools were used for code assistance and explanation.
 
 However, the project architecture, datasets, document selection, implementation decisions, testing, evaluation, and final validation were completed and reviewed by the student.
 
+## Declaration
+
+By submitting this assignment, I confirm that:
+
+- This work is my own original implementation.
+- All external libraries, tools, and APIs used in this project are disclosed in this README.
+- I understand the architecture and implementation details of this system.
+- I am able to explain and modify any part of the code during a live viva or demonstration if required.
+
+Student Name: Lishani Samarakoon  
+Module: IT41043 – Intelligent Systems (Agentic AI)  
+Institution: Horizon Campus
+
