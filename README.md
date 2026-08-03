@@ -8,6 +8,12 @@ The deployed application is available at:
 
 https://sri-lanka-tea-agentic-ai-2fadgytuwakqj95xp9jshb.streamlit.app/
 
+## 🎥 Demo Video
+
+You can watch the short system demo here:
+
+https://drive.google.com/drive/folders/1uGVn_n0tAp4YsTQtM6vTTWU-WhcSHVqk
+
 ## Project Overview
 
 This project is an Agentic AI application developed for the IT41043 Intelligent Systems / Agentic AI assignment.
